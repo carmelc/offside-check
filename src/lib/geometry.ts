@@ -1,5 +1,23 @@
 import { Point, Line } from "@/types";
 
+export function imageToScreen(p: Point, scale: number, offset: Point): Point {
+  return {
+    x: p.x * scale + offset.x,
+    y: p.y * scale + offset.y,
+  };
+}
+
+export function screenToImage(
+  screenPoint: Point,
+  scale: number,
+  offset: Point
+): Point {
+  return {
+    x: (screenPoint.x - offset.x) / scale,
+    y: (screenPoint.y - offset.y) / scale,
+  };
+}
+
 /**
  * Compute the intersection of two lines, each defined by two points.
  * Returns null if lines are (near-)parallel.

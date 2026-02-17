@@ -35,9 +35,13 @@ export default function OffsideCanvas({
 
   const {
     handleCanvasClick,
+    handleCanvasMouseDown,
     handleCanvasMouseMove,
+    handleCanvasMouseUp,
     handleCanvasMouseLeave,
     handleCanvasTouchStart,
+    handleCanvasTouchMove,
+    handleCanvasTouchEnd,
   } = useCanvasInteraction({
     canvasRef,
     image,
@@ -63,10 +67,15 @@ export default function OffsideCanvas({
       <canvas
         ref={canvasRef}
         onClick={handleCanvasClick}
+        onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseLeave}
         onTouchStart={handleCanvasTouchStart}
+        onTouchMove={handleCanvasTouchMove}
+        onTouchEnd={handleCanvasTouchEnd}
         className={`w-full h-full ${cursorClass}`}
+        style={{ touchAction: "none" }}
       />
     </div>
   );
