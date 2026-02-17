@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { AppMode, CalibrationState, OffsideLine, Point } from "@/types";
+import { AppMode, CalibrationState, OffsideLine, Point, ZoomControls } from "@/types";
 import ImageUploader from "@/components/ImageUploader";
 import OffsideCanvas from "@/components/OffsideCanvas";
 import Toolbar from "@/components/Toolbar";
@@ -22,6 +22,7 @@ export default function Home() {
   const [vanishingPoint, setVanishingPoint] = useState<Point | null>(null);
   const [offsideLines, setOffsideLines] = useState<OffsideLine[]>([]);
   const [parallelError, setParallelError] = useState(false);
+  const [zoomControls, setZoomControls] = useState<ZoomControls | null>(null);
 
   const handleImageLoad = useCallback((img: HTMLImageElement) => {
     setImage(img);
@@ -80,6 +81,7 @@ export default function Home() {
               onResetCalibration={handleResetCalibration}
               onClearOffsideLines={handleClearOffsideLines}
               onResetAll={handleResetAll}
+              zoomControls={zoomControls}
             />
           )}
         </div>
@@ -107,6 +109,7 @@ export default function Home() {
                 setOffsideLines={setOffsideLines}
                 parallelError={parallelError}
                 setParallelError={setParallelError}
+                onZoomControlsReady={setZoomControls}
               />
             </div>
 

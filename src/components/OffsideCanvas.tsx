@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef } from "react";
-import { Point, AppMode, CalibrationState, OffsideLine } from "@/types";
+import { useRef, useEffect } from "react";
+import { Point, AppMode, CalibrationState, OffsideLine, ZoomControls } from "@/types";
 import { useCanvasInteraction } from "@/hooks/useCanvasInteraction";
 
 interface OffsideCanvasProps {
@@ -16,6 +16,7 @@ interface OffsideCanvasProps {
   setOffsideLines: React.Dispatch<React.SetStateAction<OffsideLine[]>>;
   parallelError: boolean;
   setParallelError: (err: boolean) => void;
+  onZoomControlsReady?: (controls: ZoomControls) => void;
 }
 
 export default function OffsideCanvas({
@@ -30,6 +31,7 @@ export default function OffsideCanvas({
   setOffsideLines,
   parallelError,
   setParallelError,
+  onZoomControlsReady,
 }: OffsideCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -42,6 +44,10 @@ export default function OffsideCanvas({
     handleCanvasTouchStart,
     handleCanvasTouchMove,
     handleCanvasTouchEnd,
+    zoomIn,
+    zoomOut,
+    resetView,
+    zoomLevel,
   } = useCanvasInteraction({
     canvasRef,
     image,
@@ -56,6 +62,10 @@ export default function OffsideCanvas({
     parallelError,
     setParallelError,
   });
+
+  useEffect(() => {
+    onZoomControlsReady?.({ zoomIn, zoomOut, resetView, zoomLevel });
+  }, [onZoomControlsReady, zoomIn, zoomOut, resetView, zoomLevel]);
 
   const cursorClass =
     mode === "calibration" || mode === "offside"

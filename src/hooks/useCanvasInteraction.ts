@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import { Point, AppMode, CalibrationState, OffsideLine, DragState, DraggablePointSource } from "@/types";
-import { lineIntersection, screenToImage, imageToScreen } from "@/lib/geometry";
+import { lineIntersection, screenToImage, imageToScreen, computePanForZoomAroundPoint } from "@/lib/geometry";
 import { getOffsideColor } from "@/lib/colors";
 import { renderCanvas } from "@/lib/canvasRenderer";
 
@@ -19,7 +19,7 @@ interface UseCanvasInteractionProps {
   setParallelError: (err: boolean) => void;
 }
 
-type GestureType = "none" | "tap" | "drag" | "pinch";
+type GestureType = "none" | "tap" | "drag" | "pinch" | "pan";
 
 interface PendingTouch {
   screenPoint: Point;
@@ -27,11 +27,18 @@ interface PendingTouch {
   hitTarget: DraggablePointSource | null;
   timestamp: number;
   gesture: GestureType;
+  initialPan: Point;
 }
 
 const DRAG_THRESHOLD = 8; // px — distinguishes tap from drag
 const TAP_MAX_DURATION = 300; // ms
 const HIT_RADIUS = 24; // px — comfortable touch target
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
+const WHEEL_ZOOM_IN = 1.1;
+const WHEEL_ZOOM_OUT = 1 / WHEEL_ZOOM_IN;
+const BUTTON_ZOOM_FACTOR = 1.25;
 
 export function useCanvasInteraction({
   canvasRef,
@@ -48,6 +55,7 @@ export function useCanvasInteraction({
 }: UseCanvasInteractionProps) {
   const [hoverImagePoint, setHoverImagePoint] = useState<Point | null>(null);
   const [activeDrag, setActiveDrag] = useState<DragState | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
 
   const layoutRef = useRef<{
     scale: number;
@@ -56,10 +64,25 @@ export function useCanvasInteraction({
     canvasHeight: number;
   }>({ scale: 1, offset: { x: 0, y: 0 }, canvasWidth: 0, canvasHeight: 0 });
 
+  // Zoom/pan view state (ref to avoid re-renders during gestures)
+  const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
+
   // Gesture tracking refs (no re-renders)
   const pendingTouchRef = useRef<PendingTouch | null>(null);
   const mouseDragRef = useRef<{ source: DraggablePointSource; startScreen: Point } | null>(null);
   const justDraggedRef = useRef(false);
+
+  // Pan drag refs (desktop mouse pan when zoomed)
+  const panDragRef = useRef<{ startScreen: Point; startPan: Point } | null>(null);
+  const justPannedRef = useRef(false);
+
+  // Pinch gesture ref
+  const pinchRef = useRef<{
+    initialDistance: number;
+    initialMidpoint: Point;
+    initialZoom: number;
+    initialPan: Point;
+  } | null>(null);
 
   // Stable refs for values needed in callbacks without re-creating them
   const calibrationRef = useRef(calibration);
@@ -68,6 +91,19 @@ export function useCanvasInteraction({
     calibrationRef.current = calibration;
     offsideLinesRef.current = offsideLines;
   }, [calibration, offsideLines]);
+
+  // Reset zoom when image changes
+  const [prevImage, setPrevImage] = useState<HTMLImageElement | null>(image);
+  if (prevImage !== image) {
+    setPrevImage(image);
+    if (zoomLevel !== 1) {
+      setZoomLevel(1);
+    }
+  }
+  // Sync viewRef with zoomLevel state reset (effect is OK — only touches ref, no setState)
+  useEffect(() => {
+    viewRef.current = { zoom: 1, pan: { x: 0, y: 0 } };
+  }, [image]);
 
   const computeLayout = useCallback(() => {
     const canvas = canvasRef.current;
@@ -101,6 +137,50 @@ export function useCanvasInteraction({
     };
   }, [canvasRef, image]);
 
+  /** Compute effective scale/offset from base layout + view zoom/pan */
+  const getEffectiveTransform = useCallback((): { scale: number; offset: Point } => {
+    const { scale: baseScale, offset: baseOffset, canvasWidth, canvasHeight } = layoutRef.current;
+    const { zoom, pan } = viewRef.current;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+
+    const effScale = baseScale * zoom;
+    const effOffsetX = baseOffset.x * zoom + centerX * (1 - zoom) + pan.x;
+    const effOffsetY = baseOffset.y * zoom + centerY * (1 - zoom) + pan.y;
+
+    return { scale: effScale, offset: { x: effOffsetX, y: effOffsetY } };
+  }, []);
+
+  /** Clamp pan so at least 20% of image stays visible */
+  const clampPan = useCallback((pan: Point, zoom: number): Point => {
+    const { scale: baseScale, canvasWidth, canvasHeight } = layoutRef.current;
+    if (!image) return pan;
+
+    const imgW = image.width * baseScale * zoom;
+    const imgH = image.height * baseScale * zoom;
+    const margin = 0.2;
+
+    // Compute the effective offset without pan to get the "natural" position
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    const baseOffset = layoutRef.current.offset;
+    const naturalX = baseOffset.x * zoom + centerX * (1 - zoom);
+    const naturalY = baseOffset.y * zoom + centerY * (1 - zoom);
+
+    // Image left edge at: naturalX + pan.x
+    // Image right edge at: naturalX + pan.x + imgW
+    // Visible: at least margin*imgW inside canvas
+    const minPanX = -(naturalX + imgW - canvasWidth * margin);
+    const maxPanX = canvasWidth * (1 - margin) - naturalX;
+    const minPanY = -(naturalY + imgH - canvasHeight * margin);
+    const maxPanY = canvasHeight * (1 - margin) - naturalY;
+
+    return {
+      x: Math.min(Math.max(pan.x, minPanX), maxPanX),
+      y: Math.min(Math.max(pan.y, minPanY), maxPanY),
+    };
+  }, [image]);
+
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -108,7 +188,8 @@ export function useCanvasInteraction({
     if (!ctx) return;
 
     computeLayout();
-    const { scale, offset, canvasWidth, canvasHeight } = layoutRef.current;
+    const { scale, offset } = getEffectiveTransform();
+    const { canvasWidth, canvasHeight } = layoutRef.current;
     const dpr = window.devicePixelRatio || 1;
 
     renderCanvas({
@@ -135,6 +216,7 @@ export function useCanvasInteraction({
     hoverImagePoint,
     mode,
     computeLayout,
+    getEffectiveTransform,
     activeDrag,
   ]);
 
@@ -169,10 +251,10 @@ export function useCanvasInteraction({
 
   const getImagePointFromScreen = useCallback(
     (screenPt: Point): Point => {
-      const { scale, offset } = layoutRef.current;
+      const { scale, offset } = getEffectiveTransform();
       return screenToImage(screenPt, scale, offset);
     },
-    []
+    [getEffectiveTransform]
   );
 
   const getImagePoint = useCallback(
@@ -196,7 +278,7 @@ export function useCanvasInteraction({
   /** Hit-test existing points — returns the closest point source within HIT_RADIUS, or null */
   const hitTestPoints = useCallback(
     (screenPt: Point): DraggablePointSource | null => {
-      const { scale, offset } = layoutRef.current;
+      const { scale, offset } = getEffectiveTransform();
       let bestDist = HIT_RADIUS;
       let bestSource: DraggablePointSource | null = null;
 
@@ -223,7 +305,7 @@ export function useCanvasInteraction({
 
       return bestSource;
     },
-    []
+    [getEffectiveTransform]
   );
 
   /** Shared logic for adding a point (calibration or offside) at the given image coords */
@@ -313,6 +395,47 @@ export function useCanvasInteraction({
     [setCalibration, setVanishingPoint, setOffsideLines, setParallelError]
   );
 
+  // --- Scroll wheel zoom (desktop) ---
+
+  // Keep a ref to the latest render function so the wheel listener stays stable
+  const renderRef = useRef(render);
+  useEffect(() => {
+    renderRef.current = render;
+  }, [render]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+
+      const rect = canvas.getBoundingClientRect();
+      const screenPt: Point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+      const { zoom: oldZoom } = viewRef.current;
+      const factor = e.deltaY < 0 ? WHEEL_ZOOM_IN : WHEEL_ZOOM_OUT;
+      const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, oldZoom * factor));
+
+      if (newZoom === oldZoom) return;
+
+      const { scale: baseScale, offset: baseOffset, canvasWidth, canvasHeight } = layoutRef.current;
+      const canvasCenter: Point = { x: canvasWidth / 2, y: canvasHeight / 2 };
+      const oldEff = getEffectiveTransform();
+
+      const newPan = computePanForZoomAroundPoint(
+        screenPt, newZoom, baseScale, baseOffset, canvasCenter, oldEff.scale, oldEff.offset
+      );
+
+      viewRef.current = { zoom: newZoom, pan: clampPan(newPan, newZoom) };
+      setZoomLevel(newZoom);
+      renderRef.current();
+    };
+
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, [canvasRef, getEffectiveTransform, clampPan]);
+
   // --- Touch handlers (gesture state machine) ---
 
   const handleCanvasTouchStart = useCallback(
@@ -321,9 +444,34 @@ export function useCanvasInteraction({
 
       if (e.touches.length >= 2) {
         // Multi-finger → pinch immediately
-        pendingTouchRef.current = pendingTouchRef.current
-          ? { ...pendingTouchRef.current, gesture: "pinch" }
-          : null;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const t0: Point = { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+        const t1: Point = { x: e.touches[1].clientX - rect.left, y: e.touches[1].clientY - rect.top };
+        const dist = Math.hypot(t1.x - t0.x, t1.y - t0.y);
+        const mid: Point = { x: (t0.x + t1.x) / 2, y: (t0.y + t1.y) / 2 };
+
+        pinchRef.current = {
+          initialDistance: dist,
+          initialMidpoint: mid,
+          initialZoom: viewRef.current.zoom,
+          initialPan: { ...viewRef.current.pan },
+        };
+
+        if (pendingTouchRef.current) {
+          pendingTouchRef.current.gesture = "pinch";
+        } else {
+          pendingTouchRef.current = {
+            screenPoint: mid,
+            imagePoint: getImagePointFromScreen(mid),
+            hitTarget: null,
+            timestamp: Date.now(),
+            gesture: "pinch",
+            initialPan: { ...viewRef.current.pan },
+          };
+        }
+        setActiveDrag(null);
         return;
       }
 
@@ -343,6 +491,7 @@ export function useCanvasInteraction({
         hitTarget,
         timestamp: Date.now(),
         gesture: "none",
+        initialPan: { ...viewRef.current.pan },
       };
     },
     [canvasRef, getImagePointFromScreen, hitTestPoints]
@@ -354,7 +503,53 @@ export function useCanvasInteraction({
       const pending = pendingTouchRef.current;
       if (!pending) return;
 
-      // Multi-finger arriving mid-gesture → pinch
+      // --- Pinch-to-zoom (2+ fingers) ---
+      if (e.touches.length >= 2 && pinchRef.current) {
+        pending.gesture = "pinch";
+        setActiveDrag(null);
+
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const t0: Point = { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+        const t1: Point = { x: e.touches[1].clientX - rect.left, y: e.touches[1].clientY - rect.top };
+        const dist = Math.hypot(t1.x - t0.x, t1.y - t0.y);
+        const mid: Point = { x: (t0.x + t1.x) / 2, y: (t0.y + t1.y) / 2 };
+
+        const pinch = pinchRef.current;
+        const ratio = dist / pinch.initialDistance;
+        const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinch.initialZoom * ratio));
+
+        const { scale: baseScale, offset: baseOffset, canvasWidth, canvasHeight } = layoutRef.current;
+        const canvasCenter: Point = { x: canvasWidth / 2, y: canvasHeight / 2 };
+
+        // Compute effective transform at the initial pinch state
+        const initEffScale = baseScale * pinch.initialZoom;
+        const initEffOffX = baseOffset.x * pinch.initialZoom + canvasCenter.x * (1 - pinch.initialZoom) + pinch.initialPan.x;
+        const initEffOffY = baseOffset.y * pinch.initialZoom + canvasCenter.y * (1 - pinch.initialZoom) + pinch.initialPan.y;
+
+        const newPan = computePanForZoomAroundPoint(
+          mid, newZoom, baseScale, baseOffset, canvasCenter,
+          initEffScale, { x: initEffOffX, y: initEffOffY }
+        );
+
+        // Also account for midpoint translation (finger movement)
+        const midDelta: Point = {
+          x: mid.x - pinch.initialMidpoint.x,
+          y: mid.y - pinch.initialMidpoint.y,
+        };
+        const adjustedPan: Point = {
+          x: newPan.x + midDelta.x,
+          y: newPan.y + midDelta.y,
+        };
+
+        viewRef.current = { zoom: newZoom, pan: clampPan(adjustedPan, newZoom) };
+        setZoomLevel(newZoom);
+        renderRef.current();
+        return;
+      }
+
+      // Multi-finger arriving mid-gesture → start pinch
       if (e.touches.length >= 2) {
         pending.gesture = "pinch";
         setActiveDrag(null);
@@ -378,11 +573,26 @@ export function useCanvasInteraction({
       if (pending.gesture === "none" && dist > DRAG_THRESHOLD) {
         if (pending.hitTarget) {
           pending.gesture = "drag";
+        } else if (viewRef.current.zoom > 1) {
+          // Single finger on empty space while zoomed → pan
+          pending.gesture = "pan";
         } else {
-          // Moved but not on a point → suppress (treat as scroll/pinch)
+          // Moved but not on a point and not zoomed → suppress
           pending.gesture = "pinch";
           return;
         }
+      }
+
+      if (pending.gesture === "pan") {
+        const panDx = currentScreen.x - pending.screenPoint.x;
+        const panDy = currentScreen.y - pending.screenPoint.y;
+        const newPan: Point = {
+          x: pending.initialPan.x + panDx,
+          y: pending.initialPan.y + panDy,
+        };
+        viewRef.current.pan = clampPan(newPan, viewRef.current.zoom);
+        renderRef.current();
+        return;
       }
 
       if (pending.gesture === "drag" && pending.hitTarget) {
@@ -395,7 +605,7 @@ export function useCanvasInteraction({
         setActiveDrag(dragState);
       }
     },
-    [canvasRef, getImagePointFromScreen]
+    [canvasRef, getImagePointFromScreen, clampPan]
   );
 
   const handleCanvasTouchEnd = useCallback(
@@ -408,9 +618,10 @@ export function useCanvasInteraction({
       if (e.touches.length > 0) return;
 
       pendingTouchRef.current = null;
+      pinchRef.current = null;
       const dragSnapshot = activeDrag;
 
-      if (pending.gesture === "pinch") {
+      if (pending.gesture === "pinch" || pending.gesture === "pan") {
         setActiveDrag(null);
         return;
       }
@@ -435,7 +646,7 @@ export function useCanvasInteraction({
     [activeDrag, commitDrag, addPointAtImageCoords]
   );
 
-  // --- Mouse handlers (click + drag) ---
+  // --- Mouse handlers (click + drag + pan) ---
 
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -445,6 +656,10 @@ export function useCanvasInteraction({
       if (hit) {
         mouseDragRef.current = { source: hit, startScreen: sp };
         justDraggedRef.current = false;
+      } else if (viewRef.current.zoom > 1) {
+        // No hit and zoomed in → start pan drag
+        panDragRef.current = { startScreen: sp, startPan: { ...viewRef.current.pan } };
+        justPannedRef.current = false;
       }
     },
     [getScreenPoint, hitTestPoints]
@@ -454,6 +669,22 @@ export function useCanvasInteraction({
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       const sp = getScreenPoint(e.clientX, e.clientY);
       if (!sp) return;
+
+      // Pan drag in progress?
+      if (panDragRef.current) {
+        const dx = sp.x - panDragRef.current.startScreen.x;
+        const dy = sp.y - panDragRef.current.startScreen.y;
+        if (Math.hypot(dx, dy) > DRAG_THRESHOLD || justPannedRef.current) {
+          justPannedRef.current = true;
+          const newPan: Point = {
+            x: panDragRef.current.startPan.x + dx,
+            y: panDragRef.current.startPan.y + dy,
+          };
+          viewRef.current.pan = clampPan(newPan, viewRef.current.zoom);
+          renderRef.current();
+        }
+        return;
+      }
 
       // Mouse drag in progress?
       if (mouseDragRef.current) {
@@ -490,11 +721,16 @@ export function useCanvasInteraction({
       const imagePoint = getImagePointFromScreen(sp);
       setHoverImagePoint(imagePoint);
     },
-    [mode, getScreenPoint, getImagePointFromScreen]
+    [mode, getScreenPoint, getImagePointFromScreen, clampPan]
   );
 
   const handleCanvasMouseUp = useCallback(
     () => {
+      if (panDragRef.current) {
+        panDragRef.current = null;
+        // justPannedRef stays true to suppress the click
+        return;
+      }
       if (mouseDragRef.current && justDraggedRef.current && activeDrag) {
         commitDrag(activeDrag);
       }
@@ -506,9 +742,13 @@ export function useCanvasInteraction({
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      // Suppress click if we just finished a drag
+      // Suppress click if we just finished a drag or pan
       if (justDraggedRef.current) {
         justDraggedRef.current = false;
+        return;
+      }
+      if (justPannedRef.current) {
+        justPannedRef.current = false;
         return;
       }
 
@@ -531,6 +771,53 @@ export function useCanvasInteraction({
       mouseDragRef.current = null;
       setActiveDrag(null);
     }
+    if (panDragRef.current) {
+      panDragRef.current = null;
+    }
+  }, []);
+
+  // --- Toolbar zoom functions ---
+
+  const zoomIn = useCallback(() => {
+    const oldZoom = viewRef.current.zoom;
+    const newZoom = Math.min(MAX_ZOOM, oldZoom * BUTTON_ZOOM_FACTOR);
+    if (newZoom === oldZoom) return;
+
+    const { scale: baseScale, offset: baseOffset, canvasWidth, canvasHeight } = layoutRef.current;
+    const canvasCenter: Point = { x: canvasWidth / 2, y: canvasHeight / 2 };
+    const oldEff = getEffectiveTransform();
+
+    const newPan = computePanForZoomAroundPoint(
+      canvasCenter, newZoom, baseScale, baseOffset, canvasCenter, oldEff.scale, oldEff.offset
+    );
+
+    viewRef.current = { zoom: newZoom, pan: clampPan(newPan, newZoom) };
+    setZoomLevel(newZoom);
+    renderRef.current();
+  }, [getEffectiveTransform, clampPan]);
+
+  const zoomOut = useCallback(() => {
+    const oldZoom = viewRef.current.zoom;
+    const newZoom = Math.max(MIN_ZOOM, oldZoom / BUTTON_ZOOM_FACTOR);
+    if (newZoom === oldZoom) return;
+
+    const { scale: baseScale, offset: baseOffset, canvasWidth, canvasHeight } = layoutRef.current;
+    const canvasCenter: Point = { x: canvasWidth / 2, y: canvasHeight / 2 };
+    const oldEff = getEffectiveTransform();
+
+    const newPan = computePanForZoomAroundPoint(
+      canvasCenter, newZoom, baseScale, baseOffset, canvasCenter, oldEff.scale, oldEff.offset
+    );
+
+    viewRef.current = { zoom: newZoom, pan: clampPan(newPan, newZoom) };
+    setZoomLevel(newZoom);
+    renderRef.current();
+  }, [getEffectiveTransform, clampPan]);
+
+  const resetView = useCallback(() => {
+    viewRef.current = { zoom: 1, pan: { x: 0, y: 0 } };
+    setZoomLevel(1);
+    renderRef.current();
   }, []);
 
   return {
@@ -543,5 +830,9 @@ export function useCanvasInteraction({
     handleCanvasTouchMove,
     handleCanvasTouchEnd,
     render,
+    zoomIn,
+    zoomOut,
+    resetView,
+    zoomLevel,
   };
 }

@@ -31,3 +31,10 @@ export interface CalibrationState {
   line1: Line | null;
   line2: Line | null;
 }
+
+export interface ZoomControls {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+  zoomLevel: number;
+}

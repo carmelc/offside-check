@@ -41,6 +41,39 @@ export function lineIntersection(a: Line, b: Line): Point | null {
 }
 
 /**
+ * Compute the pan offset that keeps the image point under focalScreenPoint
+ * fixed after changing zoom from old effective transform to newZoom.
+ */
+export function computePanForZoomAroundPoint(
+  focalScreenPoint: Point,
+  newZoom: number,
+  baseScale: number,
+  baseOffset: Point,
+  canvasCenter: Point,
+  oldEffScale: number,
+  oldEffOffset: Point
+): Point {
+  // Image point under the focal screen point before zoom
+  const imgX = (focalScreenPoint.x - oldEffOffset.x) / oldEffScale;
+  const imgY = (focalScreenPoint.y - oldEffOffset.y) / oldEffScale;
+
+  // New effective scale
+  const newEffScale = baseScale * newZoom;
+
+  // New effective offset without pan:
+  // effOffset.x = baseOffset.x * zoom + centerX * (1 - zoom) + pan.x
+  // We want focalScreenPoint.x = imgX * newEffScale + newEffOffset.x
+  // So pan.x = focalScreenPoint.x - imgX * newEffScale - (baseOffset.x * newZoom + centerX * (1 - newZoom))
+  const basePart = baseOffset.x * newZoom + canvasCenter.x * (1 - newZoom);
+  const panX = focalScreenPoint.x - imgX * newEffScale - basePart;
+
+  const basePartY = baseOffset.y * newZoom + canvasCenter.y * (1 - newZoom);
+  const panY = focalScreenPoint.y - imgY * newEffScale - basePartY;
+
+  return { x: panX, y: panY };
+}
+
+/**
  * Extend a line defined by two points to the edges of a bounding rectangle.
  * Returns the two intersection points with the rectangle edges.
  */
