@@ -6,6 +6,8 @@ Upload a match screenshot, calibrate two converging pitch lines to find the vani
 
 ## How It Works
 
+See it live [offside-check](https://offside-check.vercel.app/)
+
 ### Step 1 — Upload & Calibrate
 
 Drop a match screenshot into the app, then click two points on each of two visible pitch lines (e.g. sidelines, penalty box edges). The tool traces these as cyan and magenta dashed lines and computes their intersection — the **vanishing point**.
@@ -35,7 +37,10 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Tech Stack
 
-- **Next.js 14** (App Router)
-- **React 18** + **TypeScript**
+- **Next.js 16** (App Router)
+- **React 19** + **TypeScript**
 - **Tailwind CSS**
 - Pure client-side — no backend or database required
+
+### Deployment status
+![Vercel](https://vercelbadge.vercel.app/api/carmelc/offside-check)
