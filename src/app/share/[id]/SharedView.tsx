@@ -1,45 +1,50 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { AppMode, CalibrationState, OffsideLine, Point, ZoomControls } from "@/types";
-import ImageUploader from "@/components/ImageUploader";
+import { useState, useCallback, useEffect } from "react";
+import type { ShareData, AppMode, CalibrationState, OffsideLine, Point, ZoomControls } from "@/types";
 import OffsideCanvas from "@/components/OffsideCanvas";
 import Toolbar from "@/components/Toolbar";
-import Instructions from "@/components/Instructions";
 import OffsideLineList from "@/components/OffsideLineList";
 import { createShare } from "@/lib/share";
 import { copyImageToClipboard, downloadImage } from "@/lib/exportImage";
+import Link from "next/link";
 
-const INITIAL_CALIBRATION: CalibrationState = {
-  points: [],
-  line1: null,
-  line2: null,
-};
+interface SharedViewProps {
+  data: ShareData;
+}
 
-export default function Home() {
+export default function SharedView({ data }: SharedViewProps) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [mode, setMode] = useState<AppMode>("upload");
-  const [calibration, setCalibration] =
-    useState<CalibrationState>(INITIAL_CALIBRATION);
-  const [vanishingPoint, setVanishingPoint] = useState<Point | null>(null);
-  const [offsideLines, setOffsideLines] = useState<OffsideLine[]>([]);
+  const [mode, setMode] = useState<AppMode>("offside");
+  const [calibration, setCalibration] = useState<CalibrationState>(() => ({
+    points: data.calibration.points,
+    line1:
+      data.calibration.points.length >= 2
+        ? { p1: data.calibration.points[0], p2: data.calibration.points[1] }
+        : null,
+    line2:
+      data.calibration.points.length >= 4
+        ? { p1: data.calibration.points[2], p2: data.calibration.points[3] }
+        : null,
+  }));
+  const [vanishingPoint, setVanishingPoint] = useState<Point | null>(data.vanishingPoint);
+  const [offsideLines, setOffsideLines] = useState<OffsideLine[]>(data.offsideLines);
   const [parallelError, setParallelError] = useState(false);
   const [zoomControls, setZoomControls] = useState<ZoomControls | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
 
-  const handleImageLoad = useCallback((img: HTMLImageElement) => {
-    setImage(img);
-    setMode("calibration");
-    setCalibration(INITIAL_CALIBRATION);
-    setVanishingPoint(null);
-    setOffsideLines([]);
-    setParallelError(false);
-  }, []);
+  // Load image from blob URL
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => setImage(img);
+    img.src = data.imageUrl;
+  }, [data.imageUrl]);
 
   const handleResetCalibration = useCallback(() => {
     setMode("calibration");
-    setCalibration(INITIAL_CALIBRATION);
+    setCalibration({ points: [], line1: null, line2: null });
     setVanishingPoint(null);
     setOffsideLines([]);
     setParallelError(false);
@@ -47,15 +52,6 @@ export default function Home() {
 
   const handleClearOffsideLines = useCallback(() => {
     setOffsideLines([]);
-  }, []);
-
-  const handleResetAll = useCallback(() => {
-    setImage(null);
-    setMode("upload");
-    setCalibration(INITIAL_CALIBRATION);
-    setVanishingPoint(null);
-    setOffsideLines([]);
-    setParallelError(false);
   }, []);
 
   const handleDeleteLine = useCallback((id: string) => {
@@ -119,18 +115,17 @@ export default function Home() {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* Header */}
       <header className="flex-shrink-0 border-b border-gray-800 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight">
-              <span className="text-blue-400">⚽</span> Offside
+              <span className="text-blue-400">&#9917;</span> Offside
             </h1>
             <span className="text-xs text-gray-500 hidden sm:inline">
-              Vanishing Point Tool
+              Shared Analysis
             </span>
           </div>
-          {mode !== "upload" && (
+          {image && (
             <Toolbar
               mode={mode}
               calibrationPointCount={calibration.points.length}
@@ -139,7 +134,7 @@ export default function Home() {
               parallelError={parallelError}
               onResetCalibration={handleResetCalibration}
               onClearOffsideLines={handleClearOffsideLines}
-              onResetAll={handleResetAll}
+              onResetAll={handleResetCalibration}
               zoomControls={zoomControls}
               onShare={handleShare}
               isSharing={isSharing}
@@ -150,7 +145,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Share status banner */}
       {shareStatus && (
         <div
           className={`flex-shrink-0 px-4 py-2 text-sm text-center ${
@@ -163,18 +157,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {mode === "upload" ? (
-          <div className="flex-1 flex items-center justify-center p-8">
-            <ImageUploader onImageLoad={handleImageLoad} />
-          </div>
-        ) : (
+        {image ? (
           <>
-            {/* Canvas area */}
             <div className="flex-1 relative">
               <OffsideCanvas
-                image={image!}
+                image={image}
                 mode={mode}
                 setMode={setMode}
                 calibration={calibration}
@@ -189,24 +177,34 @@ export default function Home() {
               />
             </div>
 
-            {/* Sidebar */}
             <aside className="w-64 flex-shrink-0 border-l border-gray-800 p-4 overflow-y-auto hidden md:block">
-              <Instructions
-                mode={mode}
-                calibrationPointCount={calibration.points.length}
-                parallelError={parallelError}
-              />
+              <div className="text-sm text-gray-400 mb-4">
+                <p>Click to add offside lines. Drag points to adjust.</p>
+              </div>
 
               {offsideLines.length > 0 && (
-                <div className="mt-6">
+                <div className="mt-2">
                   <OffsideLineList
                     lines={offsideLines}
                     onDelete={handleDeleteLine}
                   />
                 </div>
               )}
+
+              <div className="mt-6 pt-4 border-t border-gray-800">
+                <Link
+                  href="/"
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  Try with your own image &rarr;
+                </Link>
+              </div>
             </aside>
           </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-gray-500">Loading image...</span>
+          </div>
         )}
       </div>
     </div>

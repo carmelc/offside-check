@@ -12,6 +12,10 @@ interface ToolbarProps {
   onClearOffsideLines: () => void;
   onResetAll: () => void;
   zoomControls?: ZoomControls | null;
+  onShare?: () => void;
+  isSharing?: boolean;
+  onCopyImage?: () => void;
+  onDownloadImage?: () => void;
 }
 
 export default function Toolbar({
@@ -24,6 +28,10 @@ export default function Toolbar({
   onClearOffsideLines,
   onResetAll,
   zoomControls,
+  onShare,
+  isSharing,
+  onCopyImage,
+  onDownloadImage,
 }: ToolbarProps) {
   if (mode === "upload") return null;
 
@@ -103,6 +111,36 @@ export default function Toolbar({
         >
           Clear All Lines
         </button>
+      )}
+
+      {mode === "offside" && offsideLineCount > 0 && (
+        <>
+          {onCopyImage && (
+            <button
+              onClick={onCopyImage}
+              className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors"
+            >
+              Copy Image
+            </button>
+          )}
+          {onDownloadImage && (
+            <button
+              onClick={onDownloadImage}
+              className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors"
+            >
+              Download
+            </button>
+          )}
+          {onShare && (
+            <button
+              onClick={onShare}
+              disabled={isSharing}
+              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSharing ? "Sharing..." : "Share"}
+            </button>
+          )}
+        </>
       )}
 
       <button

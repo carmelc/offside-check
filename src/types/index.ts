@@ -38,3 +38,13 @@ export interface ZoomControls {
   resetView: () => void;
   zoomLevel: number;
 }
+
+export interface ShareData {
+  id: string;
+  imageUrl: string;
+  calibration: { points: Point[] };
+  vanishingPoint: Point;
+  offsideLines: OffsideLine[];
+  imageWidth: number;
+  imageHeight: number;
+}
