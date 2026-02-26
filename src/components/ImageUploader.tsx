@@ -1,30 +1,48 @@
 "use client";
 
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 
 interface ImageUploaderProps {
   onImageLoad: (img: HTMLImageElement) => void;
+}
+
+function isHeic(file: File): boolean {
+  return /^image\/(heic|heif)$/.test(file.type) ||
+    /\.heic$/i.test(file.name);
 }
 
 export default function ImageUploader({ onImageLoad }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const loadImage = useCallback(
+    (blob: Blob) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        onImageLoad(img);
+      };
+      img.src = url;
+    },
+    [onImageLoad]
+  );
+
   const handleFile = useCallback(
-    (file: File) => {
-      if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+    async (file: File) => {
+      if (!file.type.match(/^image\/(jpeg|png|webp|heic|heif)$/) && !isHeic(file)) {
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => onImageLoad(img);
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
+      if (isHeic(file)) {
+        const heic2any = (await import("heic2any")).default;
+        const blob = await heic2any({ blob: file, toType: "image/png" });
+        loadImage(Array.isArray(blob) ? blob[0] : blob);
+      } else {
+        loadImage(file);
+      }
     },
-    [onImageLoad]
+    [loadImage]
   );
 
   const handleDrop = useCallback(
@@ -53,6 +71,25 @@ export default function ImageUploader({ onImageLoad }: ImageUploaderProps) {
     },
     [handleFile]
   );
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            handleFile(file);
+            return;
+          }
+        }
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [handleFile]);
 
   return (
     <div className="flex items-center justify-center w-full h-full min-h-[400px]">
@@ -85,15 +122,18 @@ export default function ImageUploader({ onImageLoad }: ImageUploaderProps) {
           />
         </svg>
         <p className="text-lg font-medium text-gray-200 mb-1">
-          Drop a match screenshot here
+          Drop or paste a match screenshot here
         </p>
         <p className="text-sm text-gray-400">
-          or click to browse (JPEG, PNG, WebP)
+          or click to browse (JPEG, PNG, WebP, HEIC)
+        </p>
+        <p className="text-sm text-gray-500 mt-1">
+          Ctrl+V / ⌘V to paste from clipboard
         </p>
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
           onChange={handleInputChange}
           className="hidden"
         />
