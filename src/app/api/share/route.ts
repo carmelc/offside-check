@@ -1,7 +1,7 @@
 import { put } from "@vercel/blob";
 import { nanoid } from "nanoid";
 import { NextResponse } from "next/server";
-import type { ShareData, Point, OffsideLine } from "@/types";
+import type { ShareData, Point, OffsideLine, CustomLine } from "@/types";
 
 const MAX_IMAGE_SIZE = 1 * 1024 * 1024; // 1MB
 
@@ -9,6 +9,7 @@ interface ShareMetadata {
   calibration: { points: Point[] };
   vanishingPoint: Point;
   offsideLines: OffsideLine[];
+  customLines?: CustomLine[];
   imageWidth: number;
   imageHeight: number;
 }
@@ -44,6 +45,19 @@ function isValidMetadata(data: unknown): data is ShareMetadata {
       !isValidPoint(line.throughPoint)
     )
       return false;
+  }
+
+  if (d.customLines !== undefined) {
+    if (!Array.isArray(d.customLines)) return false;
+    for (const line of d.customLines) {
+      if (
+        typeof line.id !== "string" ||
+        typeof line.color !== "string" ||
+        !isValidPoint(line.p1) ||
+        !isValidPoint(line.p2)
+      )
+        return false;
+    }
   }
 
   if (typeof d.imageWidth !== "number" || typeof d.imageHeight !== "number")
@@ -104,6 +118,7 @@ export async function POST(request: Request) {
       calibration: metadata.calibration,
       vanishingPoint: metadata.vanishingPoint,
       offsideLines: metadata.offsideLines,
+      customLines: metadata.customLines,
       imageWidth: metadata.imageWidth,
       imageHeight: metadata.imageHeight,
     };

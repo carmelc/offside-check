@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import type { ShareData, AppMode, CalibrationState, OffsideLine, CustomLine, Point, ZoomControls } from "@/types";
+import { CUSTOM_LINE_COLORS } from "@/lib/colors";
 import OffsideCanvas from "@/components/OffsideCanvas";
 import Toolbar from "@/components/Toolbar";
 import OffsideLineList from "@/components/OffsideLineList";
@@ -31,6 +32,7 @@ export default function SharedView({ data }: SharedViewProps) {
   const [vanishingPoint, setVanishingPoint] = useState<Point | null>(data.vanishingPoint);
   const [offsideLines, setOffsideLines] = useState<OffsideLine[]>(data.offsideLines);
   const [customLines, setCustomLines] = useState<CustomLine[]>(data.customLines ?? []);
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [parallelError, setParallelError] = useState(false);
   const [zoomControls, setZoomControls] = useState<ZoomControls | null>(null);
   const [isSharing, setIsSharing] = useState(false);
@@ -50,12 +52,18 @@ export default function SharedView({ data }: SharedViewProps) {
     setVanishingPoint(null);
     setOffsideLines([]);
     setCustomLines([]);
+    setIsDrawingMode(false);
     setParallelError(false);
   }, []);
 
   const handleClearOffsideLines = useCallback(() => {
     setOffsideLines([]);
     setCustomLines([]);
+    setIsDrawingMode(false);
+  }, []);
+
+  const handleToggleDrawingMode = useCallback(() => {
+    setIsDrawingMode((prev) => !prev);
   }, []);
 
   const handleDeleteLine = useCallback((id: string) => {
@@ -161,6 +169,8 @@ export default function SharedView({ data }: SharedViewProps) {
               isSharing={isSharing}
               onCopyImage={handleCopyImage}
               onDownloadImage={handleDownloadImage}
+              isDrawingMode={isDrawingMode}
+              onToggleDrawingMode={handleToggleDrawingMode}
             />
           )}
         </div>
@@ -197,6 +207,8 @@ export default function SharedView({ data }: SharedViewProps) {
                 onZoomControlsReady={setZoomControls}
                 customLines={customLines}
                 setCustomLines={setCustomLines}
+                isDrawingMode={isDrawingMode}
+                drawingColor={CUSTOM_LINE_COLORS[0]}
               />
             </div>
 
