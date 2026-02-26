@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { AppMode, CalibrationState, OffsideLine, Point, ZoomControls } from "@/types";
+import { AppMode, CalibrationState, OffsideLine, CustomLine, Point, ZoomControls } from "@/types";
+import { CUSTOM_LINE_COLORS } from "@/lib/colors";
 import ImageUploader from "@/components/ImageUploader";
 import OffsideCanvas from "@/components/OffsideCanvas";
 import Toolbar from "@/components/Toolbar";
 import Instructions from "@/components/Instructions";
 import OffsideLineList from "@/components/OffsideLineList";
+import CustomLineList from "@/components/CustomLineList";
 import { createShare } from "@/lib/share";
 import { copyImageToClipboard, downloadImage } from "@/lib/exportImage";
 
@@ -25,6 +27,8 @@ export default function Home() {
   const [offsideLines, setOffsideLines] = useState<OffsideLine[]>([]);
   const [parallelError, setParallelError] = useState(false);
   const [zoomControls, setZoomControls] = useState<ZoomControls | null>(null);
+  const [customLines, setCustomLines] = useState<CustomLine[]>([]);
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
 
@@ -34,6 +38,8 @@ export default function Home() {
     setCalibration(INITIAL_CALIBRATION);
     setVanishingPoint(null);
     setOffsideLines([]);
+    setCustomLines([]);
+    setIsDrawingMode(false);
     setParallelError(false);
   }, []);
 
@@ -42,11 +48,14 @@ export default function Home() {
     setCalibration(INITIAL_CALIBRATION);
     setVanishingPoint(null);
     setOffsideLines([]);
+    setCustomLines([]);
+    setIsDrawingMode(false);
     setParallelError(false);
   }, []);
 
   const handleClearOffsideLines = useCallback(() => {
     setOffsideLines([]);
+    setCustomLines([]);
   }, []);
 
   const handleResetAll = useCallback(() => {
@@ -55,11 +64,33 @@ export default function Home() {
     setCalibration(INITIAL_CALIBRATION);
     setVanishingPoint(null);
     setOffsideLines([]);
+    setCustomLines([]);
+    setIsDrawingMode(false);
     setParallelError(false);
   }, []);
 
   const handleDeleteLine = useCallback((id: string) => {
     setOffsideLines((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  const handleUpdateOffsideLineColor = useCallback((id: string, color: string) => {
+    setOffsideLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, color } : l))
+    );
+  }, []);
+
+  const handleDeleteCustomLine = useCallback((id: string) => {
+    setCustomLines((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  const handleUpdateCustomLineColor = useCallback((id: string, color: string) => {
+    setCustomLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, color } : l))
+    );
+  }, []);
+
+  const handleToggleDrawingMode = useCallback(() => {
+    setIsDrawingMode((prev) => !prev);
   }, []);
 
   const handleShare = useCallback(async () => {
@@ -72,6 +103,7 @@ export default function Home() {
         calibration,
         vanishingPoint,
         offsideLines,
+        customLines,
       });
       const fullUrl = `${window.location.origin}${result.url}`;
       if (navigator.clipboard) {
@@ -89,9 +121,9 @@ export default function Home() {
     } finally {
       setIsSharing(false);
     }
-  }, [image, calibration, vanishingPoint, offsideLines]);
+  }, [image, calibration, vanishingPoint, offsideLines, customLines]);
 
-  const exportParams = image && vanishingPoint ? { image, calibration, vanishingPoint, offsideLines } : null;
+  const exportParams = image && vanishingPoint ? { image, calibration, vanishingPoint, offsideLines, customLines } : null;
 
   const handleCopyImage = useCallback(async () => {
     if (!exportParams) return;
@@ -145,6 +177,8 @@ export default function Home() {
               isSharing={isSharing}
               onCopyImage={handleCopyImage}
               onDownloadImage={handleDownloadImage}
+              isDrawingMode={isDrawingMode}
+              onToggleDrawingMode={handleToggleDrawingMode}
             />
           )}
         </div>
@@ -186,6 +220,10 @@ export default function Home() {
                 parallelError={parallelError}
                 setParallelError={setParallelError}
                 onZoomControlsReady={setZoomControls}
+                customLines={customLines}
+                setCustomLines={setCustomLines}
+                isDrawingMode={isDrawingMode}
+                drawingColor={CUSTOM_LINE_COLORS[0]}
               />
             </div>
 
@@ -202,6 +240,17 @@ export default function Home() {
                   <OffsideLineList
                     lines={offsideLines}
                     onDelete={handleDeleteLine}
+                    onColorChange={handleUpdateOffsideLineColor}
+                  />
+                </div>
+              )}
+
+              {customLines.length > 0 && (
+                <div className="mt-6">
+                  <CustomLineList
+                    lines={customLines}
+                    onDelete={handleDeleteCustomLine}
+                    onColorChange={handleUpdateCustomLineColor}
                   />
                 </div>
               )}

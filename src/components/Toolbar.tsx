@@ -16,6 +16,8 @@ interface ToolbarProps {
   isSharing?: boolean;
   onCopyImage?: () => void;
   onDownloadImage?: () => void;
+  isDrawingMode?: boolean;
+  onToggleDrawingMode?: () => void;
 }
 
 export default function Toolbar({
@@ -32,6 +34,8 @@ export default function Toolbar({
   isSharing,
   onCopyImage,
   onDownloadImage,
+  isDrawingMode,
+  onToggleDrawingMode,
 }: ToolbarProps) {
   if (mode === "upload") return null;
 
@@ -95,6 +99,19 @@ export default function Toolbar({
       <div className="flex-1" />
 
       {/* Buttons */}
+      {mode === "offside" && onToggleDrawingMode && (
+        <button
+          onClick={onToggleDrawingMode}
+          className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+            isDrawingMode
+              ? "bg-purple-600 hover:bg-purple-500 text-white"
+              : "bg-gray-700 hover:bg-gray-600 text-gray-200"
+          }`}
+        >
+          {isDrawingMode ? "Drawing" : "Draw Line"}
+        </button>
+      )}
+
       {(parallelError || mode === "offside") && (
         <button
           onClick={onResetCalibration}

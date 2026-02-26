@@ -14,11 +14,19 @@ export interface OffsideLine {
   color: string;
 }
 
+export interface CustomLine {
+  id: string;
+  p1: Point;
+  p2: Point;
+  color: string;
+}
+
 export type AppMode = "upload" | "calibration" | "offside";
 
 export type DraggablePointSource =
   | { kind: "calibration"; index: number }
-  | { kind: "offside"; lineId: string };
+  | { kind: "offside"; lineId: string }
+  | { kind: "custom"; lineId: string; endpoint: "p1" | "p2" };
 
 export interface DragState {
   source: DraggablePointSource;
@@ -45,6 +53,7 @@ export interface ShareData {
   calibration: { points: Point[] };
   vanishingPoint: Point;
   offsideLines: OffsideLine[];
+  customLines?: CustomLine[];
   imageWidth: number;
   imageHeight: number;
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import type { ShareData, AppMode, CalibrationState, OffsideLine, Point, ZoomControls } from "@/types";
+import type { ShareData, AppMode, CalibrationState, OffsideLine, CustomLine, Point, ZoomControls } from "@/types";
 import OffsideCanvas from "@/components/OffsideCanvas";
 import Toolbar from "@/components/Toolbar";
 import OffsideLineList from "@/components/OffsideLineList";
+import CustomLineList from "@/components/CustomLineList";
 import { createShare } from "@/lib/share";
 import { copyImageToClipboard, downloadImage } from "@/lib/exportImage";
 import Link from "next/link";
@@ -29,6 +30,7 @@ export default function SharedView({ data }: SharedViewProps) {
   }));
   const [vanishingPoint, setVanishingPoint] = useState<Point | null>(data.vanishingPoint);
   const [offsideLines, setOffsideLines] = useState<OffsideLine[]>(data.offsideLines);
+  const [customLines, setCustomLines] = useState<CustomLine[]>(data.customLines ?? []);
   const [parallelError, setParallelError] = useState(false);
   const [zoomControls, setZoomControls] = useState<ZoomControls | null>(null);
   const [isSharing, setIsSharing] = useState(false);
@@ -47,15 +49,33 @@ export default function SharedView({ data }: SharedViewProps) {
     setCalibration({ points: [], line1: null, line2: null });
     setVanishingPoint(null);
     setOffsideLines([]);
+    setCustomLines([]);
     setParallelError(false);
   }, []);
 
   const handleClearOffsideLines = useCallback(() => {
     setOffsideLines([]);
+    setCustomLines([]);
   }, []);
 
   const handleDeleteLine = useCallback((id: string) => {
     setOffsideLines((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  const handleUpdateOffsideLineColor = useCallback((id: string, color: string) => {
+    setOffsideLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, color } : l))
+    );
+  }, []);
+
+  const handleDeleteCustomLine = useCallback((id: string) => {
+    setCustomLines((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  const handleUpdateCustomLineColor = useCallback((id: string, color: string) => {
+    setCustomLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, color } : l))
+    );
   }, []);
 
   const handleShare = useCallback(async () => {
@@ -68,6 +88,7 @@ export default function SharedView({ data }: SharedViewProps) {
         calibration,
         vanishingPoint,
         offsideLines,
+        customLines,
       });
       const fullUrl = `${window.location.origin}${result.url}`;
       if (navigator.clipboard) {
@@ -85,9 +106,9 @@ export default function SharedView({ data }: SharedViewProps) {
     } finally {
       setIsSharing(false);
     }
-  }, [image, calibration, vanishingPoint, offsideLines]);
+  }, [image, calibration, vanishingPoint, offsideLines, customLines]);
 
-  const exportParams = image && vanishingPoint ? { image, calibration, vanishingPoint, offsideLines } : null;
+  const exportParams = image && vanishingPoint ? { image, calibration, vanishingPoint, offsideLines, customLines } : null;
 
   const handleCopyImage = useCallback(async () => {
     if (!exportParams) return;
@@ -174,6 +195,8 @@ export default function SharedView({ data }: SharedViewProps) {
                 parallelError={parallelError}
                 setParallelError={setParallelError}
                 onZoomControlsReady={setZoomControls}
+                customLines={customLines}
+                setCustomLines={setCustomLines}
               />
             </div>
 
@@ -187,6 +210,17 @@ export default function SharedView({ data }: SharedViewProps) {
                   <OffsideLineList
                     lines={offsideLines}
                     onDelete={handleDeleteLine}
+                    onColorChange={handleUpdateOffsideLineColor}
+                  />
+                </div>
+              )}
+
+              {customLines.length > 0 && (
+                <div className="mt-4">
+                  <CustomLineList
+                    lines={customLines}
+                    onDelete={handleDeleteCustomLine}
+                    onColorChange={handleUpdateCustomLineColor}
                   />
                 </div>
               )}

@@ -1,4 +1,4 @@
-import { CalibrationState, OffsideLine, Point } from "@/types";
+import { CalibrationState, OffsideLine, CustomLine, Point } from "@/types";
 
 const MAX_SIZE_BYTES = 1 * 1024 * 1024; // 1MB
 const INITIAL_MAX_DIMENSION = 2048;
@@ -11,6 +11,7 @@ interface ShareInput {
   calibration: CalibrationState;
   vanishingPoint: Point;
   offsideLines: OffsideLine[];
+  customLines?: CustomLine[];
 }
 
 function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
@@ -66,7 +67,7 @@ function scalePoint(point: Point, scale: number): Point {
 export async function createShare(
   input: ShareInput
 ): Promise<{ id: string; url: string }> {
-  const { image, calibration, vanishingPoint, offsideLines } = input;
+  const { image, calibration, vanishingPoint, offsideLines, customLines = [] } = input;
   const { blob, scale } = await compressImage(image);
 
   const scaledPoints = calibration.points.map((p) => scalePoint(p, scale));
@@ -75,11 +76,17 @@ export async function createShare(
     ...line,
     throughPoint: scalePoint(line.throughPoint, scale),
   }));
+  const scaledCustomLines = customLines.map((line) => ({
+    ...line,
+    p1: scalePoint(line.p1, scale),
+    p2: scalePoint(line.p2, scale),
+  }));
 
   const metadata = {
     calibration: { points: scaledPoints },
     vanishingPoint: scaledVanishingPoint,
     offsideLines: scaledOffsideLines,
+    customLines: scaledCustomLines.length > 0 ? scaledCustomLines : undefined,
     imageWidth: Math.round(image.width * scale),
     imageHeight: Math.round(image.height * scale),
   };

@@ -1,4 +1,4 @@
-import { CalibrationState, OffsideLine, Point } from "@/types";
+import { CalibrationState, OffsideLine, CustomLine, Point } from "@/types";
 import { renderCanvas } from "./canvasRenderer";
 import { getOffsideColor } from "./colors";
 
@@ -7,10 +7,11 @@ interface ExportParams {
   calibration: CalibrationState;
   vanishingPoint: Point | null;
   offsideLines: OffsideLine[];
+  customLines?: CustomLine[];
 }
 
 function renderToBlob(params: ExportParams): Promise<Blob> {
-  const { image, calibration, vanishingPoint, offsideLines } = params;
+  const { image, calibration, vanishingPoint, offsideLines, customLines = [] } = params;
   const canvas = document.createElement("canvas");
   canvas.width = image.width;
   canvas.height = image.height;
@@ -28,10 +29,12 @@ function renderToBlob(params: ExportParams): Promise<Blob> {
     calibration,
     vanishingPoint,
     offsideLines,
+    customLines,
     hoverPoint: null,
     nextColor: getOffsideColor(offsideLines.length),
     dpr: 1,
     activeDrag: null,
+    exportMode: true,
   });
 
   return new Promise((resolve, reject) => {

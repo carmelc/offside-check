@@ -1,4 +1,4 @@
-import { Point, OffsideLine, CalibrationState, DragState } from "@/types";
+import { Point, OffsideLine, CustomLine, CalibrationState, DragState } from "@/types";
 import { extendLineToBounds, imageToScreen } from "./geometry";
 
 interface RenderParams {
@@ -11,10 +11,15 @@ interface RenderParams {
   calibration: CalibrationState;
   vanishingPoint: Point | null;
   offsideLines: OffsideLine[];
+  customLines?: CustomLine[];
+  isDrawingMode?: boolean;
+  pendingCustomP1?: Point | null;
+  drawingColor?: string;
   hoverPoint: Point | null;
   nextColor: string;
   dpr: number;
   activeDrag: DragState | null;
+  exportMode?: boolean;
 }
 
 function drawDashedLine(
@@ -109,10 +114,15 @@ export function renderCanvas(params: RenderParams) {
     calibration,
     vanishingPoint,
     offsideLines,
+    customLines = [],
+    isDrawingMode = false,
+    pendingCustomP1 = null,
+    drawingColor = "#FF4444",
     hoverPoint,
     nextColor,
     dpr,
     activeDrag,
+    exportMode = false,
   } = params;
 
   // Helper: get effective image-space position for a calibration point (accounting for drag)
@@ -167,19 +177,21 @@ export function renderCanvas(params: RenderParams) {
   }
 
   // Calibration points
-  const calColors = ["#00FFFF", "#00FFFF", "#FF00FF", "#FF00FF"];
-  calibration.points.forEach((_, i) => {
-    const p = calPoint(i);
-    const sp = imageToScreen(p, imageScale, imageOffset);
-    const isDragging = activeDrag?.source.kind === "calibration" && activeDrag.source.index === i;
-    if (isDragging) drawDragHalo(ctx, sp);
-    drawPoint(ctx, sp, calColors[i] || "#FFFFFF", 6);
-  });
+  if (!exportMode) {
+    const calColors = ["#00FFFF", "#00FFFF", "#FF00FF", "#FF00FF"];
+    calibration.points.forEach((_, i) => {
+      const p = calPoint(i);
+      const sp = imageToScreen(p, imageScale, imageOffset);
+      const isDragging = activeDrag?.source.kind === "calibration" && activeDrag.source.index === i;
+      if (isDragging) drawDragHalo(ctx, sp);
+      drawPoint(ctx, sp, calColors[i] || "#FFFFFF", 6);
+    });
 
-  // Vanishing point
-  if (vanishingPoint) {
-    const svp = imageToScreen(vanishingPoint, imageScale, imageOffset);
-    drawCrosshair(ctx, svp, "#FFFF00", 12);
+    // Vanishing point
+    if (vanishingPoint) {
+      const svp = imageToScreen(vanishingPoint, imageScale, imageOffset);
+      drawCrosshair(ctx, svp, "#FFFF00", 12);
+    }
   }
 
   // Offside lines (use dragged throughPoint positions)
@@ -190,13 +202,66 @@ export function renderCanvas(params: RenderParams) {
     const stp = imageToScreen(tp, imageScale, imageOffset);
     const [ext1, ext2] = extendLineToBounds(svp, stp, canvasWidth, canvasHeight);
     drawSolidLine(ctx, ext1, ext2, line.color, 2.5);
-    const isDragging = activeDrag?.source.kind === "offside" && activeDrag.source.lineId === line.id;
-    if (isDragging) drawDragHalo(ctx, stp);
-    drawPoint(ctx, stp, line.color, 5);
+    if (!exportMode) {
+      const isDragging = activeDrag?.source.kind === "offside" && activeDrag.source.lineId === line.id;
+      if (isDragging) drawDragHalo(ctx, stp);
+      drawPoint(ctx, stp, line.color, 5);
+    }
   });
 
-  // Hover preview
-  if (hoverPoint && vanishingPoint) {
+  // Custom lines
+  customLines.forEach((line) => {
+    const getEndpoint = (endpoint: "p1" | "p2"): Point => {
+      if (
+        activeDrag?.source.kind === "custom" &&
+        activeDrag.source.lineId === line.id &&
+        activeDrag.source.endpoint === endpoint
+      ) {
+        return activeDrag.currentPoint;
+      }
+      return line[endpoint];
+    };
+
+    const p1 = getEndpoint("p1");
+    const p2 = getEndpoint("p2");
+    const sp1 = imageToScreen(p1, imageScale, imageOffset);
+    const sp2 = imageToScreen(p2, imageScale, imageOffset);
+
+    drawDashedLine(ctx, sp1, sp2, line.color, 2.5, [10, 8]);
+
+    if (!exportMode) {
+      const isDraggingP1 =
+        activeDrag?.source.kind === "custom" &&
+        activeDrag.source.lineId === line.id &&
+        activeDrag.source.endpoint === "p1";
+      const isDraggingP2 =
+        activeDrag?.source.kind === "custom" &&
+        activeDrag.source.lineId === line.id &&
+        activeDrag.source.endpoint === "p2";
+
+      if (isDraggingP1) drawDragHalo(ctx, sp1);
+      if (isDraggingP2) drawDragHalo(ctx, sp2);
+
+      drawPoint(ctx, sp1, line.color, 5);
+      drawPoint(ctx, sp2, line.color, 5);
+    }
+  });
+
+  // Pending custom P1 dot + hover preview line in drawing mode
+  if (isDrawingMode && pendingCustomP1) {
+    const sp1 = imageToScreen(pendingCustomP1, imageScale, imageOffset);
+    drawPoint(ctx, sp1, drawingColor, 6);
+
+    if (hoverPoint) {
+      const shp = imageToScreen(hoverPoint, imageScale, imageOffset);
+      ctx.globalAlpha = 0.4;
+      drawDashedLine(ctx, sp1, shp, drawingColor, 2, [10, 8]);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Hover preview (offside lines only, not when drawing custom)
+  if (hoverPoint && vanishingPoint && !isDrawingMode) {
     const svp = imageToScreen(vanishingPoint, imageScale, imageOffset);
     const shp = imageToScreen(hoverPoint, imageScale, imageOffset);
     const [ext1, ext2] = extendLineToBounds(svp, shp, canvasWidth, canvasHeight);

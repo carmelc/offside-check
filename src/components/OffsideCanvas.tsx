@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect } from "react";
-import { Point, AppMode, CalibrationState, OffsideLine, ZoomControls } from "@/types";
+import { Point, AppMode, CalibrationState, OffsideLine, CustomLine, ZoomControls } from "@/types";
 import { useCanvasInteraction } from "@/hooks/useCanvasInteraction";
 
 interface OffsideCanvasProps {
@@ -17,6 +17,10 @@ interface OffsideCanvasProps {
   parallelError: boolean;
   setParallelError: (err: boolean) => void;
   onZoomControlsReady?: (controls: ZoomControls) => void;
+  customLines?: CustomLine[];
+  setCustomLines?: React.Dispatch<React.SetStateAction<CustomLine[]>>;
+  isDrawingMode?: boolean;
+  drawingColor?: string;
 }
 
 export default function OffsideCanvas({
@@ -32,6 +36,10 @@ export default function OffsideCanvas({
   parallelError,
   setParallelError,
   onZoomControlsReady,
+  customLines,
+  setCustomLines,
+  isDrawingMode,
+  drawingColor,
 }: OffsideCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -61,6 +69,10 @@ export default function OffsideCanvas({
     setOffsideLines,
     parallelError,
     setParallelError,
+    customLines,
+    setCustomLines,
+    isDrawingMode,
+    drawingColor,
   });
 
   useEffect(() => {

@@ -16,3 +16,14 @@ const OFFSIDE_COLORS = [
 export function getOffsideColor(index: number): string {
   return OFFSIDE_COLORS[index % OFFSIDE_COLORS.length];
 }
+
+export const CUSTOM_LINE_COLORS = [
+  "#FF4444", // red
+  "#44FF44", // green
+  "#4488FF", // blue
+  "#FFFF44", // yellow
+  "#FF8844", // orange
+  "#FF44FF", // magenta
+  "#44FFFF", // cyan
+  "#FFFFFF", // white
+];

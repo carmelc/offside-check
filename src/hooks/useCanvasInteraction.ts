@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from "react";
-import { Point, AppMode, CalibrationState, OffsideLine, DragState, DraggablePointSource } from "@/types";
+import { Point, AppMode, CalibrationState, OffsideLine, CustomLine, DragState, DraggablePointSource } from "@/types";
 import { lineIntersection, screenToImage, imageToScreen, computePanForZoomAroundPoint } from "@/lib/geometry";
 import { getOffsideColor } from "@/lib/colors";
 import { renderCanvas } from "@/lib/canvasRenderer";
@@ -17,6 +17,10 @@ interface UseCanvasInteractionProps {
   setOffsideLines: React.Dispatch<React.SetStateAction<OffsideLine[]>>;
   parallelError: boolean;
   setParallelError: (err: boolean) => void;
+  customLines?: CustomLine[];
+  setCustomLines?: React.Dispatch<React.SetStateAction<CustomLine[]>>;
+  isDrawingMode?: boolean;
+  drawingColor?: string;
 }
 
 type GestureType = "none" | "tap" | "drag" | "pinch" | "pan";
@@ -52,10 +56,15 @@ export function useCanvasInteraction({
   offsideLines,
   setOffsideLines,
   setParallelError,
+  customLines = [],
+  setCustomLines,
+  isDrawingMode = false,
+  drawingColor = "#FF4444",
 }: UseCanvasInteractionProps) {
   const [hoverImagePoint, setHoverImagePoint] = useState<Point | null>(null);
   const [activeDrag, setActiveDrag] = useState<DragState | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [pendingCustomP1, setPendingCustomP1] = useState<Point | null>(null);
 
   const layoutRef = useRef<{
     scale: number;
@@ -87,10 +96,12 @@ export function useCanvasInteraction({
   // Stable refs for values needed in callbacks without re-creating them
   const calibrationRef = useRef(calibration);
   const offsideLinesRef = useRef(offsideLines);
+  const customLinesRef = useRef(customLines);
   useEffect(() => {
     calibrationRef.current = calibration;
     offsideLinesRef.current = offsideLines;
-  }, [calibration, offsideLines]);
+    customLinesRef.current = customLines;
+  }, [calibration, offsideLines, customLines]);
 
   // Reset zoom when image changes
   const [prevImage, setPrevImage] = useState<HTMLImageElement | null>(image);
@@ -104,6 +115,13 @@ export function useCanvasInteraction({
   useEffect(() => {
     viewRef.current = { zoom: 1, pan: { x: 0, y: 0 } };
   }, [image]);
+
+  // Clear pending custom point when drawing mode is turned off
+  useEffect(() => {
+    if (!isDrawingMode) {
+      setPendingCustomP1(null);
+    }
+  }, [isDrawingMode]);
 
   const computeLayout = useCallback(() => {
     const canvas = canvasRef.current;
@@ -202,6 +220,10 @@ export function useCanvasInteraction({
       calibration,
       vanishingPoint,
       offsideLines,
+      customLines,
+      isDrawingMode,
+      pendingCustomP1,
+      drawingColor,
       hoverPoint: mode === "offside" ? hoverImagePoint : null,
       nextColor: getOffsideColor(offsideLines.length),
       dpr,
@@ -213,6 +235,10 @@ export function useCanvasInteraction({
     calibration,
     vanishingPoint,
     offsideLines,
+    customLines,
+    isDrawingMode,
+    pendingCustomP1,
+    drawingColor,
     hoverImagePoint,
     mode,
     computeLayout,
@@ -282,7 +308,19 @@ export function useCanvasInteraction({
       let bestDist = HIT_RADIUS;
       let bestSource: DraggablePointSource | null = null;
 
-      // Offside throughPoints (drawn on top, check first)
+      // Custom line endpoints (drawn on top, check first)
+      for (const line of customLinesRef.current) {
+        for (const endpoint of ["p1", "p2"] as const) {
+          const sp = imageToScreen(line[endpoint], scale, offset);
+          const dist = Math.hypot(sp.x - screenPt.x, sp.y - screenPt.y);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestSource = { kind: "custom", lineId: line.id, endpoint };
+          }
+        }
+      }
+
+      // Offside throughPoints
       for (const line of offsideLinesRef.current) {
         const sp = imageToScreen(line.throughPoint, scale, offset);
         const dist = Math.hypot(sp.x - screenPt.x, sp.y - screenPt.y);
@@ -339,6 +377,19 @@ export function useCanvasInteraction({
           if (newPoints.length > 4) return prev;
           return { ...prev, points: newPoints, line1, line2 };
         });
+      } else if (mode === "offside" && isDrawingMode && setCustomLines) {
+        if (!pendingCustomP1) {
+          setPendingCustomP1(imagePoint);
+        } else {
+          const newLine: CustomLine = {
+            id: crypto.randomUUID(),
+            p1: pendingCustomP1,
+            p2: imagePoint,
+            color: drawingColor,
+          };
+          setCustomLines((prev) => [...prev, newLine]);
+          setPendingCustomP1(null);
+        }
       } else if (mode === "offside" && vanishingPoint) {
         const newLine: OffsideLine = {
           id: crypto.randomUUID(),
@@ -348,7 +399,7 @@ export function useCanvasInteraction({
         setOffsideLines((prev) => [...prev, newLine]);
       }
     },
-    [mode, vanishingPoint, offsideLines.length, setCalibration, setVanishingPoint, setMode, setOffsideLines, setParallelError]
+    [mode, vanishingPoint, offsideLines.length, isDrawingMode, drawingColor, pendingCustomP1, setCalibration, setVanishingPoint, setMode, setOffsideLines, setParallelError, setCustomLines]
   );
 
   /** Commit a completed drag — update the point position in state */
@@ -383,7 +434,14 @@ export function useCanvasInteraction({
 
           return { ...prev, points: newPoints, line1, line2 };
         });
-      } else {
+      } else if (drag.source.kind === "custom" && setCustomLines) {
+        const { lineId, endpoint } = drag.source;
+        setCustomLines((prev) =>
+          prev.map((l) =>
+            l.id === lineId ? { ...l, [endpoint]: drag.currentPoint } : l
+          )
+        );
+      } else if (drag.source.kind === "offside") {
         const lineId = drag.source.lineId;
         setOffsideLines((prev) =>
           prev.map((l) =>
@@ -392,7 +450,7 @@ export function useCanvasInteraction({
         );
       }
     },
-    [setCalibration, setVanishingPoint, setOffsideLines, setParallelError]
+    [setCalibration, setVanishingPoint, setOffsideLines, setParallelError, setCustomLines]
   );
 
   // --- Scroll wheel zoom (desktop) ---
@@ -699,6 +757,9 @@ export function useCanvasInteraction({
           let origPt: Point;
           if (src.kind === "calibration") {
             origPt = calibrationRef.current.points[src.index];
+          } else if (src.kind === "custom") {
+            const line = customLinesRef.current.find((l) => l.id === src.lineId);
+            origPt = line ? line[src.endpoint] : imagePt;
           } else {
             const line = offsideLinesRef.current.find((l) => l.id === src.lineId);
             origPt = line ? line.throughPoint : imagePt;
@@ -834,5 +895,6 @@ export function useCanvasInteraction({
     zoomOut,
     resetView,
     zoomLevel,
+    pendingCustomP1,
   };
 }
